@@ -1,0 +1,14 @@
+{
+  "name": "pi-keepalive",
+  "version": "0.1.0",
+  "description": "Pi extension: keep the machine awake while the agent is working.",
+  "keywords": ["pi-package", "pi-extension", "sleep", "caffeinate", "inhibit"],
+  "license": "MIT",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/bry-guy/pi-keepalive.git" },
+  "files": ["index.ts", "README.md", "LICENSE"],
+  "pi": { "extensions": ["./index.ts"] },
+  "scripts": { "test": "node --test" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "engines": { "node": ">=22.18" }
+}

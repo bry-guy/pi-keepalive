@@ -77,7 +77,11 @@ export default function (pi: ExtensionAPI) {
 		(child.stdin as { unref?: () => void } | null)?.unref?.();
 	};
 
-	pi.on("agent_start", async () => { stop(); start(); });
-	pi.on("agent_end", async () => stop());
-	pi.on("session_shutdown", async () => stop());
+	// A turn waiting on a dialog is waiting on you, not working: let the machine sleep until it's answered.
+	let turn = false;
+	pi.on("agent_start", async () => { turn = true; stop(); start(); });
+	pi.on("ui_prompt_start", async () => stop());
+	pi.on("ui_prompt_end", async () => { if (turn && !child) start(); });
+	pi.on("agent_end", async () => { turn = false; stop(); });
+	pi.on("session_shutdown", async () => { turn = false; stop(); });
 }

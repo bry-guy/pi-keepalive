@@ -1,6 +1,6 @@
 # pi-keepalive
 
-A [pi](https://github.com/earendil-works/pi) extension that keeps your machine from sleeping while the agent is working. It starts an OS sleep inhibitor at `agent_start` and stops it at `agent_end`, so the machine can sleep normally between turns.
+A [pi](https://github.com/earendil-works/pi) extension that keeps your machine from sleeping while the agent is working. It starts an OS sleep inhibitor at `agent_start` and stops it at `agent_end`, so the machine can sleep normally between turns. While a turn waits on a dialog (an extension asking you something), the inhibitor is released until you answer.
 
 | Platform | Default (`auto`) |
 |---|---|

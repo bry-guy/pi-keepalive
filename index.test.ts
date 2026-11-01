@@ -46,3 +46,32 @@ test("windows and wsl use PowerShell; wsl ends on stdin close", () => {
 	assert.deepEqual(resolve({}, { PI_KEEPALIVE_WIN32: "custom" }, "win32"), ["powershell", ["-NoProfile", "-Command", "custom"]]);
 	assert.equal(resolve({}, { PI_KEEPALIVE_WSL: "x" }, "wsl")![0], "sh");
 });
+
+test("a dialog pauses the inhibitor for the rest of the turn; outside a turn it never starts", async () => {
+	const { mkdtempSync, readFileSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { tmpdir } = await import("node:os");
+	const { default: keepalive } = await import("./index.ts");
+	const marks = join(mkdtempSync(join(tmpdir(), "keepalive-")), "starts");
+	const handlers = new Map<string, () => Promise<void>>();
+	keepalive({ on: (event: string, handler: () => Promise<void>) => handlers.set(event, handler) } as never);
+	const saved = process.env.PI_KEEPALIVE;
+	process.env.PI_KEEPALIVE = `echo start >> ${marks}; exec sleep 30`;
+	const fire = async (event: string) => { await handlers.get(event)!(); await new Promise((r) => setTimeout(r, 150)); };
+	const starts = () => { try { return readFileSync(marks, "utf8").split("\n").filter(Boolean).length; } catch { return 0; } };
+	try {
+		await fire("agent_start");
+		assert.equal(starts(), 1);
+		await fire("ui_prompt_start");
+		await fire("ui_prompt_end");
+		assert.equal(starts(), 2, "resumed after the answer");
+		await fire("agent_end");
+		await fire("ui_prompt_start");
+		await fire("ui_prompt_end");
+		assert.equal(starts(), 2, "no turn, no inhibitor");
+	} finally {
+		await handlers.get("session_shutdown")!();
+		if (saved === undefined) delete process.env.PI_KEEPALIVE;
+		else process.env.PI_KEEPALIVE = saved;
+	}
+});

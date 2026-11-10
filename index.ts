@@ -52,6 +52,9 @@ function loadSettings(): unknown {
 	}
 }
 
+/** Swappable so tests can count spawns without racing real processes. */
+export const deps = { spawn };
+
 export default function (pi: ExtensionAPI) {
 	let child: ChildProcess | undefined;
 	const stop = () => {
@@ -66,7 +69,7 @@ export default function (pi: ExtensionAPI) {
 		const spec = resolve(loadSettings(), process.env, platform);
 		if (!spec) return;
 		const [cmd, args, stdin = "ignore"] = spec;
-		child = spawn(cmd, args, {
+		child = deps.spawn(cmd, args, {
 			stdio: [stdin, "ignore", "ignore"],
 			env: { ...process.env, PI_PID: String(process.pid) },
 			detached: process.platform !== "win32", // own process group, so stop() also ends the inhibitor's children

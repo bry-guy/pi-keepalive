@@ -52,12 +52,47 @@ function loadSettings(): unknown {
 	}
 }
 
+const UNITS: Record<string, number> = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 };
+
+/** Parses a linger duration (`"30m"`, `"1h"`, `"90s"`, `"1h30m"`, ms number, or `"0"` / `"off"`). Invalid values return 0. */
+export function parseDuration(value: unknown): number {
+	if (typeof value === "number") return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+	if (typeof value !== "string") return 0;
+	const raw = value.trim().toLowerCase();
+	if (!raw || raw === "0" || raw === "off" || raw === "false") return 0;
+	if (/^\d+$/.test(raw)) return Number(raw);
+	let total = 0;
+	let consumed = 0;
+	for (const match of raw.matchAll(/(\d+)(ms|s|m|h)/g)) {
+		if (match.index !== consumed) return 0;
+		total += Number(match[1]) * UNITS[match[2]];
+		consumed += match[0].length;
+	}
+	return consumed === raw.length ? total : 0;
+}
+
+/** How long (ms) to keep the inhibitor alive after a turn ends or pauses on a dialog. PI_KEEPALIVE_LINGER beats settings. */
+export function resolveLingerMs(settings: unknown, env: Record<string, string | undefined>): number {
+	if (env.PI_KEEPALIVE_LINGER !== undefined) return parseDuration(env.PI_KEEPALIVE_LINGER);
+	const own = (settings as Record<string, unknown> | undefined)?.["pi-keepalive"];
+	if (own && typeof own === "object") return parseDuration((own as Record<string, unknown>).linger);
+	return 0;
+}
+
 /** Swappable so tests can count spawns without racing real processes. */
 export const deps = { spawn };
 
 export default function (pi: ExtensionAPI) {
 	let child: ChildProcess | undefined;
+	let lingerTimer: ReturnType<typeof setTimeout> | undefined;
+	const clearLinger = () => {
+		if (lingerTimer) {
+			clearTimeout(lingerTimer);
+			lingerTimer = undefined;
+		}
+	};
 	const stop = () => {
+		clearLinger();
 		const pid = child?.pid;
 		if (pid && child?.exitCode === null && child.signalCode === null) {
 			try { process.platform === "win32" ? child.kill() : process.kill(-pid); } catch {}
@@ -65,6 +100,7 @@ export default function (pi: ExtensionAPI) {
 		child = undefined;
 	};
 	const start = () => {
+		clearLinger();
 		const platform = process.platform === "linux" && /microsoft/i.test(release()) ? "wsl" : process.platform;
 		const spec = resolve(loadSettings(), process.env, platform);
 		if (!spec) return;
@@ -79,12 +115,27 @@ export default function (pi: ExtensionAPI) {
 		child.unref();
 		(child.stdin as { unref?: () => void } | null)?.unref?.();
 	};
+	const release = () => {
+		const lingerMs = resolveLingerMs(loadSettings(), process.env);
+		if (lingerMs <= 0) {
+			stop();
+			return;
+		}
+		if (!child) return;
+		clearLinger();
+		lingerTimer = setTimeout(() => {
+			lingerTimer = undefined;
+			if (!turn || waiting) stop();
+		}, lingerMs);
+		lingerTimer.unref?.();
+	};
 
-	// A turn waiting on a dialog is waiting on you, not working: let the machine sleep until it's answered.
+	// A turn waiting on a dialog is waiting on you, not working: release (or linger, if configured) until answered.
 	let turn = false;
-	pi.on("agent_start", async () => { turn = true; stop(); start(); });
-	pi.on("ui_prompt_start", async () => stop());
-	pi.on("ui_prompt_end", async () => { if (turn && !child) start(); });
-	pi.on("agent_end", async () => { turn = false; stop(); });
-	pi.on("session_shutdown", async () => { turn = false; stop(); });
+	let waiting = false;
+	pi.on("agent_start", async () => { turn = true; waiting = false; clearLinger(); if (!child) start(); });
+	pi.on("ui_prompt_start", async () => { waiting = true; release(); });
+	pi.on("ui_prompt_end", async () => { waiting = false; clearLinger(); if (turn && !child) start(); });
+	pi.on("agent_end", async () => { turn = false; waiting = false; release(); });
+	pi.on("session_shutdown", async () => { turn = false; waiting = false; stop(); });
 }

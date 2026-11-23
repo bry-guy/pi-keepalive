@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolve } from "./index.ts";
+import { parseDuration, resolve, resolveLingerMs } from "./index.ts";
 
 const script = (spec: ReturnType<typeof resolve>) => spec?.[1][1] ?? "";
 
@@ -73,5 +73,63 @@ test("a dialog pauses the inhibitor for the rest of the turn; outside a turn it 
 		deps.spawn = realSpawn;
 		if (saved === undefined) delete process.env.PI_KEEPALIVE;
 		else process.env.PI_KEEPALIVE = saved;
+	}
+});
+
+test("parseDuration and resolveLingerMs parse durations and respect env override", () => {
+	assert.equal(parseDuration(undefined), 0);
+	assert.equal(parseDuration("0"), 0);
+	assert.equal(parseDuration("off"), 0);
+	assert.equal(parseDuration("bogus"), 0);
+	assert.equal(parseDuration(1500), 1500);
+	assert.equal(parseDuration("90s"), 90_000);
+	assert.equal(parseDuration("30m"), 30 * 60_000);
+	assert.equal(parseDuration("1h"), 3_600_000);
+	assert.equal(parseDuration("1h30m"), 90 * 60_000);
+	assert.equal(resolveLingerMs({ "pi-keepalive": { darwin: "auto", linger: "30m" } }, {}), 30 * 60_000);
+	assert.equal(resolveLingerMs({ "pi-keepalive": { linger: "30m" } }, { PI_KEEPALIVE_LINGER: "1h" }), 3_600_000);
+	assert.equal(resolveLingerMs({ "pi-keepalive": { linger: "30m" } }, { PI_KEEPALIVE_LINGER: "0" }), 0);
+});
+
+test("linger keeps the inhibitor alive across ui_prompt and after agent_end until expiry or shutdown", async () => {
+	const { default: keepalive, deps } = await import("./index.ts");
+	const handlers = new Map<string, () => Promise<void>>();
+	keepalive({ on: (event: string, handler: () => Promise<void>) => handlers.set(event, handler) } as never);
+	const savedKeepalive = process.env.PI_KEEPALIVE;
+	const savedLinger = process.env.PI_KEEPALIVE_LINGER;
+	process.env.PI_KEEPALIVE = "true";
+	process.env.PI_KEEPALIVE_LINGER = "40ms";
+	let starts = 0;
+	const realSpawn = deps.spawn;
+	deps.spawn = (() => { starts++; return { exitCode: null, signalCode: null, stdin: null, on() {}, unref() {} }; }) as never;
+	const fire = (event: string) => handlers.get(event)!();
+	try {
+		await fire("agent_start");
+		assert.equal(starts, 1);
+		// Dialog within linger window keeps the existing inhibitor alive.
+		await fire("ui_prompt_start");
+		await fire("ui_prompt_end");
+		assert.equal(starts, 1, "reused lingering inhibitor across short dialog");
+		// Starting a new turn before linger expires reuses the inhibitor without respawning.
+		await fire("agent_end");
+		await fire("agent_start");
+		assert.equal(starts, 1, "reused lingering inhibitor for follow-up turn");
+		// After linger expires, the inhibitor is released and the next turn spawns a fresh one.
+		await fire("agent_end");
+		await new Promise((r) => setTimeout(r, 80));
+		await fire("agent_start");
+		assert.equal(starts, 2, "spawned fresh inhibitor after linger elapsed");
+		// session_shutdown stops immediately even while lingering.
+		await fire("agent_end");
+		await fire("session_shutdown");
+		await fire("agent_start");
+		assert.equal(starts, 3, "shutdown released inhibitor immediately");
+	} finally {
+		await handlers.get("session_shutdown")!();
+		deps.spawn = realSpawn;
+		if (savedKeepalive === undefined) delete process.env.PI_KEEPALIVE;
+		else process.env.PI_KEEPALIVE = savedKeepalive;
+		if (savedLinger === undefined) delete process.env.PI_KEEPALIVE_LINGER;
+		else process.env.PI_KEEPALIVE_LINGER = savedLinger;
 	}
 });

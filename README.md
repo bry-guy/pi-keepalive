@@ -22,10 +22,14 @@ pi install git:github.com/bry-guy/pi-keepalive
 Set `pi-keepalive` in `~/.pi/agent/settings.json`, either as one value for every platform or as per-platform values. The platform keys are `darwin`, `linux`, `win32`, `wsl`, or any other `process.platform` value.
 
 ```json
-{ "pi-keepalive": { "darwin": "auto", "linux": "systemd-inhibit", "wsl": "off" } }
+{ "pi-keepalive": { "darwin": "auto", "linux": "systemd-inhibit", "wsl": "off", "linger": "30m" } }
 ```
 
 Environment variables override settings: `PI_KEEPALIVE_<PLATFORM>` (e.g. `PI_KEEPALIVE_LINUX`) wins over `PI_KEEPALIVE`, which wins over `settings.json`.
+
+### Linger duration (`linger` / `PI_KEEPALIVE_LINGER`)
+
+By default (`0` / unset), the inhibitor stops as soon as a turn finishes or pauses on a dialog. Set `linger` (in `settings.json` under `pi-keepalive`) or `PI_KEEPALIVE_LINGER` to a duration such as `"30m"` or `"1h"` to keep the machine awake for that window after `agent_end` or `ui_prompt_start` — useful when continuing or answering a session remotely from another device. `session_shutdown` always releases the inhibitor immediately. Note that closing a laptop lid still sleeps macOS.
 
 | Value | Meaning |
 |---|---|

@@ -4,6 +4,8 @@
   "description": "Pi extension: keep the machine awake while the agent is working.",
   "keywords": ["pi-package", "pi-extension", "sleep", "caffeinate", "inhibit"],
   "license": "MIT",
+  "homepage": "https://github.com/bry-guy/pi-keepalive#readme",
+  "bugs": { "url": "https://github.com/bry-guy/pi-keepalive/issues" },
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/bry-guy/pi-keepalive.git" },
   "files": ["index.ts", "README.md", "LICENSE"],

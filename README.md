@@ -14,6 +14,8 @@ If no inhibitor is available, the extension does nothing. It never blocks pi or 
 ## Install
 
 ```sh
+pi install npm:pi-keepalive
+# or from git:
 pi install git:github.com/bry-guy/pi-keepalive
 ```
 
